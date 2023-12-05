@@ -1,0 +1,46 @@
+---
+# tasks file for ansible-gitlab-runner
+
+- name: Check GitLab Runner version
+  command: "gitlab-runner --version"
+  register: gitlab_runner_version
+  ignore_errors: true
+
+- name: Install GitLab Runner
+  when: "'gitlab-runner' not in gitlab_runner_version.stdout"
+  block:
+    - name: Stop GitLab Runner if running
+      command: "gitlab-runner stop"
+      ignore_errors: true
+
+    - name: Download GitLab Runner binary
+      command: "sudo curl -L --output /usr/local/bin/gitlab-runner 'https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-linux-amd64'"
+
+    - name: Set executable permissions
+      command: "sudo chmod +x /usr/local/bin/gitlab-runner"
+
+    - name: Create GitLab Runner user
+      command: "sudo useradd --comment 'GitLab Runner' --create-home gitlab-runner --shell /bin/bash"
+      ignore_errors: true
+      register: user_add_result
+
+    - name: Install GitLab Runner as a service
+      command: "sudo gitlab-runner install --user=gitlab-runner --working-directory=/home/gitlab-runner"
+      ignore_errors: true
+      when: "'gitlab-runner: Init already exists' not in user_add_result.stdout"
+
+    - name: Add user to the 'docker' group
+      command: "usermod -aG docker gitlab-runner"
+
+    - name: Restart Docker service
+      systemd:
+        name: docker
+        state: restarted
+
+    - name: Create .bash_logout file
+      copy:
+        content: " "
+        dest: "/home/gitlab-runner/.bash_logout"
+
+    - name: Start GitLab Runner
+      command: "gitlab-runner start"
